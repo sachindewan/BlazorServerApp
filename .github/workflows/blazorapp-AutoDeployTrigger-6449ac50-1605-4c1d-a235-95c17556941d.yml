@@ -1,0 +1,60 @@
+name: Trigger auto deployment for blazorapp
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/blazorapp-AutoDeployTrigger-6449ac50-1605-4c1d-a235-95c17556941d.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: blazorap.azurecr.io
+          username: ${{ secrets.BLAZORAPP_REGISTRY_USERNAME }}
+          password: ${{ secrets.BLAZORAPP_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: blazorap.azurecr.io/blazorapp:${{ github.sha }}
+          file: ./Dockerfile
+          context: ./
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.BLAZORAPP_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp registry set -n blazorapp -g ff-rg-blazor-app-az-con-app --server blazorap.azurecr.io --username  ${{ secrets.BLAZORAPP_REGISTRY_USERNAME }} --password ${{ secrets.BLAZORAPP_REGISTRY_PASSWORD }}
+            az containerapp update -n blazorapp -g ff-rg-blazor-app-az-con-app --image blazorap.azurecr.io/blazorapp:${{ github.sha }}
